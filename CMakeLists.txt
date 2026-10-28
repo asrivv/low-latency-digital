@@ -31,3 +31,24 @@ set(LLE_WARNINGS -Wall -Wextra)
 set(LLE_HOT_FLAGS -fno-exceptions -fno-rtti)
 
 add_subdirectory(tools)
+
+include(CTest)
+if(BUILD_TESTING)
+  include(FetchContent)
+  set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+  set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+  FetchContent_MakeAvailable(googletest)
+
+  function(lle_test name)
+    add_executable(${name} tests/${name}.cpp ${ARGN})
+    target_link_libraries(${name} PRIVATE lle GTest::gtest_main)
+    target_compile_options(${name} PRIVATE ${LLE_WARNINGS})
+    add_test(NAME ${name} COMMAND ${name})
+  endfunction()
+
+  lle_test(test_codecs)
+  lle_test(test_soupbin)
+endif()
