@@ -58,3 +58,11 @@ if(BUILD_TESTING)
   lle_test(test_engine)
   lle_test(test_differential)
 endif()
+
+function(lle_bench name)
+  add_executable(${name} bench/${name}.cpp ${ARGN})
+  target_link_libraries(${name} PRIVATE lle)
+  target_compile_options(${name} PRIVATE ${LLE_WARNINGS} ${LLE_HOT_FLAGS})
+endfunction()
+
+lle_bench(bench_engine)
