@@ -1,0 +1,15 @@
+{
+  "bench": "pipeline",
+  "host": "Apple M4 Pro",
+  "timer_tick_ns": 41.67,
+  "warmup_s": 2.0,
+  "duration_s": 10.0,
+  "corpus_messages": 4001599,
+  "ring_slots": 65536,
+  "runs": [
+    {"target_rate": 1000000, "achieved_rate": 1000000, "response_rate": 1000000, "commands": 10000000, "first_responses": 10000000, "allocations_during_measurement": 0, "latency": {"count": 10000000, "mean_ns": 4967.8, "min_ns": 83, "p50_ns": 250, "p90_ns": 459, "p99_ns": 5887, "p99_9_ns": 1703935, "p99_99_ns": 4063231, "max_ns": 5826542}},
+    {"target_rate": 5000000, "achieved_rate": 5000000, "response_rate": 5000000, "commands": 50000000, "first_responses": 50000000, "allocations_during_measurement": 0, "latency": {"count": 50000000, "mean_ns": 9777.6, "min_ns": 41, "p50_ns": 291, "p90_ns": 3135, "p99_ns": 174079, "p99_9_ns": 1474559, "p99_99_ns": 1941503, "max_ns": 2634834}},
+    {"target_rate": 10000000, "achieved_rate": 8268539, "response_rate": 8268539, "commands": 82685386, "first_responses": 82685386, "allocations_during_measurement": 0, "latency": {"count": 82685386, "mean_ns": 7926047.1, "min_ns": 7101333, "p50_ns": 7569407, "p90_ns": 9502719, "p99_ns": 12648447, "p99_9_ns": 13697023, "p99_99_ns": 14352383, "max_ns": 14464084}},
+    {"target_rate": 0, "achieved_rate": 8323734, "response_rate": 8323734, "commands": 83237343, "first_responses": 83237343, "allocations_during_measurement": 0, "latency": {"count": 83237343, "mean_ns": 7873930.8, "min_ns": 7108667, "p50_ns": 7602175, "p90_ns": 9043967, "p99_ns": 12451839, "p99_9_ns": 13500415, "p99_99_ns": 14614527, "max_ns": 14713042}}
+  ]
+}

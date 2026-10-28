@@ -77,3 +77,5 @@ function(lle_bench name)
 endfunction()
 
 lle_bench(bench_engine)
+lle_bench(bench_pipeline)
+target_link_libraries(bench_pipeline PRIVATE lle_exchange)
