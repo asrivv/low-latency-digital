@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Renders bench/results/*.json into the generated blocks of README.md.
+"""Renders bench/results/*.json into the marked blocks of README.md.
 
 Every number in a block is copied verbatim from the JSON text. Afterwards every number in the
 whole README is checked against the results files, and the script fails if one is missing.

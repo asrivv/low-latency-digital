@@ -31,7 +31,7 @@ struct ReplaceCmd {
     ouch::ReplaceOrder msg;
 };
 
-// Inbound ring slot. t_decode is the steady-clock stamp taken when the gateway decoded the
+// Inbound ring slot. t_decode is the steady-clock time at which the gateway decoded the
 // message; seq identifies the command in outbound slots for latency attribution.
 struct alignas(128) Command {
     enum class Kind : std::uint8_t { Enter, Cancel, Replace };

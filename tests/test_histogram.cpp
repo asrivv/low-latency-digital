@@ -44,7 +44,7 @@ TEST(Histogram, RelativeErrorUnderOnePercent) {
     EXPECT_EQ(h.max(), values.back());
 }
 
-TEST(Histogram, MergeAndClamp) {
+TEST(Histogram, MergeAndSaturate) {
     Histogram a, b;
     a.record(10);
     b.record(20'000'000'000ull);
