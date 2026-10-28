@@ -1,0 +1,1 @@
+{"book_checksum": "d1aec7d2d533b7dd", "commands": 95138760, "enters": 64524048, "cancels": 26787164, "replaces": 3827548, "rejects": 0, "ignored": 10037913, "matches": 39999177, "live_orders": 143211, "ouch_out": 167413115, "itch_out": 101045384, "md_messages": 101045384, "md_packets": 3408758, "md_send_retries": 0, "sessions": 17, "frames_out": 167412940, "dropped_out": 175}
