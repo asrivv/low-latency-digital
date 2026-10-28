@@ -44,6 +44,7 @@ void MdPublisher::send_packet(const std::byte* p, std::size_t n) noexcept {
     }
     ++stats_.packets;
     last_send_ = now_ns();
+    pacer_.sent(last_send_);
 }
 
 void MdPublisher::flush() noexcept {
@@ -53,22 +54,21 @@ void MdPublisher::flush() noexcept {
 }
 
 void MdPublisher::poll() noexcept {
-    MdMsg* m = ring_.peek();
-    if (m == nullptr) {
-        flush();
-        if (now_ns() - last_send_ >= kHeartbeatNs) {
-            std::byte hb[mold::kHeaderSize];
-            send_packet(hb, pk_.heartbeat(hb));
-        }
-        return;
-    }
-    do {
+    while (MdMsg* m = ring_.peek()) {
         if (!pk_.fits(m->len)) flush();
         pk_.add(m->data, m->len);
         ++stats_.messages;
         ring_.release();
-    } while ((m = ring_.peek()) != nullptr);
-    flush();
+    }
+    std::int64_t now = now_ns();
+    if (pk_.empty()) {
+        if (now - last_send_ >= kHeartbeatNs) {
+            std::byte hb[mold::kHeaderSize];
+            send_packet(hb, pk_.heartbeat(hb));
+        }
+    } else if (pacer_.ready(now)) {
+        flush();
+    }
 }
 
 void MdPublisher::finish() noexcept {

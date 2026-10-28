@@ -36,6 +36,7 @@ struct Options {
     double duration = 10.0;
     double warmup = 2.0;
     std::uint64_t seed = 1;
+    std::int64_t pace_ns = 40'000;
     std::string out;
 };
 
@@ -124,7 +125,11 @@ public:
                     while (slen_ - soff_ < kUnthrottledBacklog && slen_ + kMaxFrame <= kSendBuffer) generate(now);
                 }
             }
-            flush();
+            std::size_t backlog = slen_ - soff_;
+            if (backlog != 0 && (pacer_.ready(now) || backlog >= kFlushBytes)) {
+                pacer_.sent(now);
+                flush();
+            }
             if (!receive()) break;
             if (now >= w1 && soff_ == slen_ && (pending_.empty() || now >= drain_until)) break;
         }
@@ -139,6 +144,7 @@ private:
     static constexpr std::size_t kRecvBuffer = 4 * 1024 * 1024;
     static constexpr std::size_t kMaxFrame = 64;
     static constexpr std::size_t kUnthrottledBacklog = 256 * 1024;
+    static constexpr std::size_t kFlushBytes = 64 * 1024;
 
     void generate(std::int64_t sched) {
         FlowMsg f = flow_.next();
@@ -233,6 +239,7 @@ private:
     std::size_t rlen_ = 0;
     std::unordered_map<std::uint64_t, std::int64_t> pending_;
     std::int64_t w0_ = 0, w1_ = 0;
+    SendPacer pacer_{opt_.pace_ns, 4};
 };
 
 Options parse_args(int argc, char** argv) {
@@ -248,6 +255,7 @@ Options parse_args(int argc, char** argv) {
         else if (k == "--duration") o.duration = std::stod(v);
         else if (k == "--warmup") o.warmup = std::stod(v);
         else if (k == "--seed") o.seed = std::stoull(v);
+        else if (k == "--pace-us") o.pace_ns = std::stoll(v) * 1000;
         else if (k == "--out") o.out = v;
         else throw std::runtime_error("unknown flag " + k);
     }

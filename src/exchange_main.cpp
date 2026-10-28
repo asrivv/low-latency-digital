@@ -23,11 +23,13 @@ struct Options {
     int pin_gateway = -1;
     int pin_engine = -1;
     int pin_md = -1;
+    std::int64_t gw_pace_ns = Gateway::kDefaultPaceNs;
+    std::int64_t md_pace_ns = MdPublisher::kDefaultPaceNs;
 };
 
 [[noreturn]] void usage() {
     std::fprintf(stderr,
-                 "usage: exchange [--port N] [--md-addr A] [--md-port N]"
+                 "usage: exchange [--port N] [--md-addr A] [--md-port N] [--pace-us N] [--md-pace-us N]"
 #if defined(__linux__)
                  " [--pin-gateway CPU] [--pin-engine CPU] [--pin-md CPU]"
 #endif
@@ -44,6 +46,8 @@ Options parse(int argc, char** argv) {
         if (!std::strcmp(k, "--port")) o.port = static_cast<std::uint16_t>(std::atoi(v));
         else if (!std::strcmp(k, "--md-addr")) o.md_addr = v;
         else if (!std::strcmp(k, "--md-port")) o.md_port = static_cast<std::uint16_t>(std::atoi(v));
+        else if (!std::strcmp(k, "--pace-us")) o.gw_pace_ns = std::atoll(v) * 1000;
+        else if (!std::strcmp(k, "--md-pace-us")) o.md_pace_ns = std::atoll(v) * 1000;
 #if defined(__linux__)
         else if (!std::strcmp(k, "--pin-gateway")) o.pin_gateway = std::atoi(v);
         else if (!std::strcmp(k, "--pin-engine")) o.pin_engine = std::atoi(v);
@@ -83,6 +87,8 @@ int main(int argc, char** argv) {
     auto gateway = std::make_unique<Gateway>(*in, *out);
     auto publisher = std::make_unique<MdPublisher>(*md);
 
+    gateway->set_pace_ns(opt.gw_pace_ns);
+    publisher->set_pace_ns(opt.md_pace_ns);
     if (!gateway->listen(opt.port)) {
         std::perror("listen");
         return 1;

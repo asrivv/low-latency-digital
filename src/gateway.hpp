@@ -110,6 +110,9 @@ public:
     static constexpr int kSocketBuffer = 4 * 1024 * 1024;
     static constexpr std::int64_t kHeartbeatNs = 1'000'000'000;
     static constexpr std::int64_t kIdleTimeoutNs = 15'000'000'000;
+    static constexpr std::int64_t kDefaultPaceNs = 40'000;
+    static constexpr int kPaceBurst = 4;
+    static constexpr std::size_t kFlushBytes = 64 * 1024;
 
     Gateway(InboundRing& in, OutboundRing& out);
     ~Gateway();
@@ -118,6 +121,10 @@ public:
 
     bool listen(std::uint16_t port) noexcept;
     std::uint16_t port() const noexcept { return port_; }
+
+    // Write pacing per session. Loopback on macOS saturates at a modest packet rate, and one
+    // segment per response would reach it long before the engine is busy.
+    void set_pace_ns(std::int64_t ns) noexcept { pace_ns_ = ns; }
 
     void poll() noexcept;
     void stop_input() noexcept { input_ = false; }
@@ -137,6 +144,7 @@ private:
         std::size_t slen = 0;
         std::int64_t last_recv = 0;
         std::int64_t last_send = 0;
+        SendPacer pacer{kDefaultPaceNs, kPaceBurst};
         std::unique_ptr<std::byte[]> rbuf;
         std::unique_ptr<std::byte[]> sbuf;
     };
@@ -159,6 +167,7 @@ private:
     std::uint64_t iteration_ = 0;
     std::uint64_t next_seq_ = 1;
     std::int64_t midnight_offset_;
+    std::int64_t pace_ns_ = kDefaultPaceNs;
     GatewayStats stats_;
 };
 

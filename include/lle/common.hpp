@@ -121,6 +121,27 @@ inline std::uint64_t since_midnight(std::int64_t steady_ns, std::int64_t offset)
 }
 
 
+// GCRA over write calls: up to `burst` back-to-back writes, then one per `interval`. Lets a
+// lightly loaded socket write every message immediately while capping the packet rate under
+// load, where batching costs little latency because messages are arriving anyway.
+class SendPacer {
+public:
+    SendPacer(std::int64_t interval_ns, int burst) noexcept
+        : interval_(interval_ns), tolerance_(interval_ns * (burst - 1)) {}
+
+    bool ready(std::int64_t now) const noexcept { return now >= tat_ - tolerance_; }
+    void sent(std::int64_t now) noexcept { tat_ = (tat_ > now ? tat_ : now) + interval_; }
+    void set_interval(std::int64_t interval_ns, int burst) noexcept {
+        interval_ = interval_ns;
+        tolerance_ = interval_ns * (burst - 1);
+    }
+
+private:
+    std::int64_t interval_;
+    std::int64_t tolerance_;
+    std::int64_t tat_ = 0;
+};
+
 using SessionId = std::uint16_t;
 
 inline constexpr std::uint32_t kTickSize = 100;  // price units per tick ($0.01)

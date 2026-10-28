@@ -108,7 +108,8 @@ void Gateway::poll() noexcept {
             soupbin::encode_empty(reserve(s, soupbin::kHeaderSize), 'H');
             s.last_send = now;
         }
-        flush(s, now);
+        std::size_t pending = s.slen - s.soff;
+        if (pending != 0 && (s.pacer.ready(now) || pending >= kFlushBytes)) flush(s, now);
         if (s.fd < 0) continue;
         if ((s.closing && s.slen == 0) || now - s.last_recv >= kIdleTimeoutNs) close_session(s);
     }
@@ -136,6 +137,7 @@ void Gateway::accept_new(std::int64_t now) noexcept {
         s.closing = false;
         s.rlen = s.soff = s.slen = 0;
         s.last_recv = s.last_send = now;
+        s.pacer = SendPacer(pace_ns_, kPaceBurst);
         ++stats_.sessions_accepted;
     }
 }
@@ -234,8 +236,9 @@ std::byte* Gateway::reserve(Session& s, std::size_t n) noexcept {
     return p;
 }
 
-void Gateway::flush(Session& s, std::int64_t) noexcept {
+void Gateway::flush(Session& s, std::int64_t now) noexcept {
     if (s.soff == s.slen) return;
+    s.pacer.sent(now);
     ssize_t n = ::send(s.fd, s.sbuf.get() + s.soff, s.slen - s.soff, kSendFlags);
     if (n > 0) {
         s.soff += static_cast<std::size_t>(n);
