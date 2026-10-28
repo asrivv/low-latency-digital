@@ -51,4 +51,7 @@ if(BUILD_TESTING)
 
   lle_test(test_codecs)
   lle_test(test_soupbin)
+  lle_test(test_ring)
+  lle_test(test_flat_map)
+  lle_test(test_histogram)
 endif()
