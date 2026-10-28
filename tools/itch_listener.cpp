@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <atomic>
+#include <chrono>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -188,7 +189,6 @@ int main(int argc, char** argv) try {
     auto ring = std::make_unique<PacketRing>();
     std::atomic<bool> receiver_done{false}, timed_out{false}, stop{false};
     std::thread receiver([&] {
-        make_thread_hot(-1);
         std::int64_t last_packet = now_ns();
         while (!stop.load(std::memory_order_relaxed)) {
             Packet* p;
@@ -209,11 +209,13 @@ int main(int argc, char** argv) try {
         receiver_done.store(true, std::memory_order_release);
     });
 
+    // The verifier is not latency sensitive; sleeping when idle keeps it from taking a core
+    // the exchange and load generator are spinning on.
     for (;;) {
         Packet* p = ring->peek();
         if (p == nullptr) {
             if (receiver_done.load(std::memory_order_acquire) && ring->peek() == nullptr) break;
-            cpu_relax();
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
             continue;
         }
         ++packets;
