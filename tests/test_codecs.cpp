@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <string_view>
 #include <vector>
 
+#include "lle/itch.hpp"
+#include "lle/moldudp64.hpp"
 #include "lle/ouch.hpp"
 
 using namespace lle;
@@ -213,4 +216,201 @@ TEST(Ouch, Rejected) {
     EXPECT_EQ(d.reason, m.reason);
     EXPECT_EQ(ouch::outbound_size('J'), 24u);
     EXPECT_EQ(ouch::outbound_size('S'), 10u);
+}
+
+namespace {
+
+template <class M>
+std::vector<std::byte> ienc(const M& m, std::size_t expected) {
+    std::vector<std::byte> out(64);
+    std::size_t n = itch::encode(m, out.data());
+    EXPECT_EQ(n, expected);
+    EXPECT_EQ(itch::message_size(static_cast<char>(out[0])), expected);
+    out.resize(n);
+    return out;
+}
+
+constexpr std::uint64_t kTs = 0x0000123456789abcull;
+
+}  // namespace
+
+TEST(Itch, SystemEvent) {
+    auto bytes = ienc(itch::SystemEvent{kTs, 'O'}, 12);
+    Bytes ref;
+    ref.c('S').u16(0).u16(0).u48(kTs).c('O');
+    EXPECT_EQ(bytes, ref.v);
+    auto d = itch::decode_system_event(bytes.data());
+    EXPECT_EQ(d.timestamp, kTs);
+    EXPECT_EQ(d.event, 'O');
+}
+
+TEST(Itch, StockDirectory) {
+    itch::StockDirectory m;
+    m.locate = 5;
+    m.timestamp = kTs;
+    m.stock = symbol_key("GOOGL");
+    auto bytes = ienc(m, 39);
+    Bytes ref;
+    ref.c('R').u16(5).u16(0).u48(kTs).a("GOOGL", 8).c('Q').c('N').u32(100).c('N').c('C').c('Z').c(' ').c('P')
+        .c('N').c('N').c('1').c('N').u32(0).c('N');
+    EXPECT_EQ(bytes, ref.v);
+    auto d = itch::decode_stock_directory(bytes.data());
+    EXPECT_EQ(d.locate, 5);
+    EXPECT_EQ(d.timestamp, kTs);
+    EXPECT_EQ(d.stock, m.stock);
+    EXPECT_EQ(d.round_lot, 100u);
+    EXPECT_EQ(d.issue_subtype[0], 'Z');
+    EXPECT_EQ(d.issue_subtype[1], ' ');
+    EXPECT_EQ(d.luld_tier, '1');
+    EXPECT_EQ(d.inverse, 'N');
+}
+
+TEST(Itch, AddOrder) {
+    itch::AddOrder m{3, kTs, 0x1122334455667788ull, 'S', 400, symbol_key("NVDA"), 1'200'100};
+    auto bytes = ienc(m, 36);
+    Bytes ref;
+    ref.c('A').u16(3).u16(0).u48(kTs).u64(0x1122334455667788ull).c('S').u32(400).a("NVDA", 8).u32(1'200'100);
+    EXPECT_EQ(bytes, ref.v);
+    auto d = itch::decode_add(bytes.data());
+    EXPECT_EQ(d.locate, 3);
+    EXPECT_EQ(d.timestamp, kTs);
+    EXPECT_EQ(d.ref, m.ref);
+    EXPECT_EQ(d.side, 'S');
+    EXPECT_EQ(d.shares, 400u);
+    EXPECT_EQ(d.stock, m.stock);
+    EXPECT_EQ(d.price, m.price);
+}
+
+TEST(Itch, OrderExecuted) {
+    itch::OrderExecuted m{8, kTs, 99, 100, 12345};
+    auto bytes = ienc(m, 31);
+    Bytes ref;
+    ref.c('E').u16(8).u16(0).u48(kTs).u64(99).u32(100).u64(12345);
+    EXPECT_EQ(bytes, ref.v);
+    auto d = itch::decode_executed(bytes.data());
+    EXPECT_EQ(d.locate, 8);
+    EXPECT_EQ(d.timestamp, kTs);
+    EXPECT_EQ(d.ref, 99u);
+    EXPECT_EQ(d.shares, 100u);
+    EXPECT_EQ(d.match, 12345u);
+}
+
+TEST(Itch, OrderCancel) {
+    itch::OrderCancel m{1, kTs, 7, 300};
+    auto bytes = ienc(m, 23);
+    Bytes ref;
+    ref.c('X').u16(1).u16(0).u48(kTs).u64(7).u32(300);
+    EXPECT_EQ(bytes, ref.v);
+    auto d = itch::decode_cancel(bytes.data());
+    EXPECT_EQ(d.locate, 1);
+    EXPECT_EQ(d.ref, 7u);
+    EXPECT_EQ(d.shares, 300u);
+}
+
+TEST(Itch, OrderDelete) {
+    itch::OrderDelete m{2, kTs, 8};
+    auto bytes = ienc(m, 19);
+    Bytes ref;
+    ref.c('D').u16(2).u16(0).u48(kTs).u64(8);
+    EXPECT_EQ(bytes, ref.v);
+    auto d = itch::decode_delete(bytes.data());
+    EXPECT_EQ(d.locate, 2);
+    EXPECT_EQ(d.timestamp, kTs);
+    EXPECT_EQ(d.ref, 8u);
+}
+
+TEST(Itch, OrderReplace) {
+    itch::OrderReplace m{4, kTs, 10, 11, 600, 1'850'000};
+    auto bytes = ienc(m, 35);
+    Bytes ref;
+    ref.c('U').u16(4).u16(0).u48(kTs).u64(10).u64(11).u32(600).u32(1'850'000);
+    EXPECT_EQ(bytes, ref.v);
+    auto d = itch::decode_replace(bytes.data());
+    EXPECT_EQ(d.locate, 4);
+    EXPECT_EQ(d.orig_ref, 10u);
+    EXPECT_EQ(d.new_ref, 11u);
+    EXPECT_EQ(d.shares, 600u);
+    EXPECT_EQ(d.price, 1'850'000u);
+    auto h = itch::decode_header(bytes.data());
+    EXPECT_EQ(h.type, 'U');
+    EXPECT_EQ(h.tracking, 0);
+    EXPECT_EQ(itch::message_size('Z'), 0u);
+}
+
+TEST(Mold, PacketLayoutAndRoundTrip) {
+    mold::Packetizer pk;
+    std::byte msg[64];
+    std::size_t n1 = itch::encode(itch::OrderDelete{1, kTs, 5}, msg);
+    pk.add(msg, n1);
+    std::size_t n2 = itch::encode(itch::OrderCancel{1, kTs, 6, 100}, msg);
+    pk.add(msg, n2);
+    std::size_t len = pk.finish();
+    ASSERT_EQ(len, 20 + 2 + 19 + 2 + 23u);
+
+    Bytes ref;
+    ref.a("LLE0000001", 10).u64(1).u16(2).u16(19);
+    std::vector<std::byte> got(pk.data(), pk.data() + len);
+    EXPECT_TRUE(std::equal(ref.v.begin(), ref.v.end(), got.begin()));
+
+    mold::PacketHeader h;
+    std::vector<std::uint64_t> seqs;
+    std::vector<char> types;
+    ASSERT_TRUE(mold::parse(pk.data(), len, h, [&](std::uint64_t seq, const std::byte* m, std::size_t n) {
+        seqs.push_back(seq);
+        types.push_back(static_cast<char>(m[0]));
+        EXPECT_EQ(itch::message_size(static_cast<char>(m[0])), n);
+    }));
+    EXPECT_EQ(std::string_view(h.session, 10), "LLE0000001");
+    EXPECT_EQ(h.sequence, 1u);
+    EXPECT_EQ(h.count, 2);
+    EXPECT_EQ(seqs, (std::vector<std::uint64_t>{1, 2}));
+    EXPECT_EQ(types, (std::vector<char>{'D', 'X'}));
+
+    pk.add(msg, n2);
+    len = pk.finish();
+    ASSERT_TRUE(mold::parse(pk.data(), len, h, [](std::uint64_t, const std::byte*, std::size_t) {}));
+    EXPECT_EQ(h.sequence, 3u);
+    EXPECT_EQ(h.count, 1);
+}
+
+TEST(Mold, PayloadLimit) {
+    mold::Packetizer pk;
+    std::byte msg[64];
+    std::size_t n = itch::encode(itch::AddOrder{1, kTs, 1, 'B', 100, symbol_key("AAPL"), 1'900'000}, msg);
+    int count = 0;
+    while (pk.fits(n)) {
+        pk.add(msg, n);
+        ++count;
+    }
+    EXPECT_EQ(count, (1400 - 20) / (2 + 36));
+    EXPECT_LE(pk.finish(), 1400u);
+}
+
+TEST(Mold, HeartbeatAndEndOfSession) {
+    mold::Packetizer pk;
+    std::byte msg[64];
+    std::size_t n = itch::encode(itch::OrderDelete{1, kTs, 5}, msg);
+    pk.add(msg, n);
+    pk.finish();
+    std::byte out[mold::kHeaderSize];
+    mold::PacketHeader h;
+    ASSERT_EQ(pk.heartbeat(out), 20u);
+    ASSERT_TRUE(mold::parse(out, 20, h, [](std::uint64_t, const std::byte*, std::size_t) { FAIL(); }));
+    EXPECT_EQ(h.sequence, 2u);
+    EXPECT_EQ(h.count, 0);
+    ASSERT_EQ(pk.end_of_session(out), 20u);
+    ASSERT_TRUE(mold::parse(out, 20, h, [](std::uint64_t, const std::byte*, std::size_t) { FAIL(); }));
+    EXPECT_EQ(h.sequence, 2u);
+    EXPECT_EQ(h.count, mold::kEndOfSession);
+}
+
+TEST(Mold, MalformedPacket) {
+    mold::Packetizer pk;
+    std::byte msg[64];
+    pk.add(msg, itch::encode(itch::OrderDelete{1, kTs, 5}, msg));
+    std::size_t len = pk.finish();
+    mold::PacketHeader h;
+    auto noop = [](std::uint64_t, const std::byte*, std::size_t) {};
+    EXPECT_FALSE(mold::parse(pk.data(), len - 1, h, noop));
+    EXPECT_FALSE(mold::parse(pk.data(), 10, h, noop));
 }
