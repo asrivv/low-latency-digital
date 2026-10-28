@@ -2,19 +2,19 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
-#include <list>
-#include <map>
+#include <memory>
 #include <netinet/in.h>
 #include <stdexcept>
 #include <string>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
-#include <unordered_map>
 
 #include "lle/common.hpp"
+#include "lle/flat_map.hpp"
 #include "lle/itch.hpp"
 #include "lle/moldudp64.hpp"
+#include "lle/order_book.hpp"
 
 using namespace lle;
 
@@ -27,106 +27,96 @@ struct Options {
     std::string out;
 };
 
-// Book rebuilt purely from ITCH. Level FIFOs follow message order, which is the exchange's
-// priority order, so the checksum can be compared with the engine's.
+// Books rebuilt purely from ITCH, on the same level-array structure the engine uses. Level FIFOs
+// follow message order, which is the exchange's priority order, so the checksum is comparable.
 class Books {
 public:
+    static constexpr std::uint32_t kCapacity = 1u << 22;
+
+    Books()
+        : books_(new OrderBook[kNumSymbols]),
+          pool_(new Order[kCapacity]()),
+          free_(new std::uint32_t[kCapacity]),
+          free_top_(kCapacity),
+          refs_(std::size_t{kCapacity} * 2) {
+        for (std::uint32_t i = 0; i < kCapacity; ++i) free_[i] = kCapacity - 1 - i;
+    }
+
     void add(std::uint64_t ref, std::uint8_t loc, char side, std::uint32_t price, std::uint32_t shares) {
-        if (loc == 0 || loc > kNumSymbols) return;
+        if (loc == 0 || loc > kNumSymbols || (side != 'B' && side != 'S') || free_top_ == 0) return;
         std::uint32_t tick = price / kTickSize;
-        auto& q = level(loc, side, tick);
-        q.push_back(ref);
-        orders_[ref] = Order{loc, side, tick, shares, std::prev(q.end())};
+        if (tick == 0 || tick > kMaxTick || refs_.find(ref) != nullptr) return;
+        std::uint32_t idx = free_[--free_top_];
+        Order& o = pool_[idx];
+        o.ref = ref;
+        o.open = shares;
+        o.tick = tick;
+        o.side = side;
+        o.locate = loc;
+        books_[loc - 1].append(pool_.get(), idx);
+        refs_.insert(ref, idx);
     }
 
     void reduce(std::uint64_t ref, std::uint32_t shares) {
-        auto it = orders_.find(ref);
-        if (it == orders_.end()) return;
-        if (it->second.shares <= shares) erase(it); else it->second.shares -= shares;
+        const std::uint32_t* idx = refs_.find(ref);
+        if (idx == nullptr) return;
+        Order& o = pool_[*idx];
+        if (o.open <= shares) remove(ref); else books_[o.locate - 1].reduce(o, shares);
     }
 
     void remove(std::uint64_t ref) {
-        auto it = orders_.find(ref);
-        if (it != orders_.end()) erase(it);
+        const std::uint32_t* p = refs_.find(ref);
+        if (p == nullptr) return;
+        std::uint32_t idx = *p;
+        books_[pool_[idx].locate - 1].unlink(pool_.get(), idx);
+        refs_.erase(ref);
+        free_[free_top_++] = idx;
     }
 
     void replace(std::uint64_t old_ref, std::uint64_t new_ref, std::uint32_t price, std::uint32_t shares) {
-        auto it = orders_.find(old_ref);
-        if (it == orders_.end()) return;
-        std::uint8_t loc = it->second.loc;
-        char side = it->second.side;
-        erase(it);
+        const std::uint32_t* idx = refs_.find(old_ref);
+        if (idx == nullptr) return;
+        std::uint8_t loc = pool_[*idx].locate;
+        char side = pool_[*idx].side;
+        remove(old_ref);
         add(new_ref, loc, side, price, shares);
     }
 
     std::uint64_t checksum() const {
         std::uint64_t h = kFnvOffset;
-        for (std::size_t s = 0; s < kNumSymbols; ++s) {
-            for (auto lvl = bids_[s].rbegin(); lvl != bids_[s].rend(); ++lvl)
-                for (std::uint64_t ref : lvl->second) h = mix(h, ref);
-            for (const auto& [tick, q] : asks_[s])
-                for (std::uint64_t ref : q) h = mix(h, ref);
-        }
+        for (std::size_t s = 0; s < kNumSymbols; ++s)
+            books_[s].for_each_resting(pool_.get(), [&](const Order& o) {
+                h = checksum_order(h, o.locate, o.side, o.tick, o.open, o.ref);
+            });
         return h;
     }
 
     std::string top_of_book() const {
         std::string s = "{";
         for (std::size_t i = 0; i < kNumSymbols; ++i) {
+            const OrderBook& b = books_[i];
+            std::uint32_t bid = b.best_bid(), ask = b.best_ask();
+            std::uint64_t bid_sz = bid != OrderBook::kNoBid ? b.level('B', bid).total_shares : 0;
+            std::uint64_t ask_sz = ask != OrderBook::kNoAsk ? b.level('S', ask).total_shares : 0;
             char buf[192];
-            std::uint64_t bid_sz = 0, ask_sz = 0;
-            std::uint32_t bid = 0, ask = 0;
-            if (!bids_[i].empty()) {
-                auto lvl = bids_[i].rbegin();
-                bid = lvl->first * kTickSize;
-                for (std::uint64_t r : lvl->second) bid_sz += orders_.at(r).shares;
-            }
-            if (!asks_[i].empty()) {
-                auto lvl = asks_[i].begin();
-                ask = lvl->first * kTickSize;
-                for (std::uint64_t r : lvl->second) ask_sz += orders_.at(r).shares;
-            }
-            std::snprintf(buf, sizeof buf, "%s\"%.*s\": {\"bid\": %u, \"bid_size\": %llu, \"ask\": %u, \"ask_size\": %llu}",
-                          i ? ", " : "", static_cast<int>(kSymbolNames[i].size()), kSymbolNames[i].data(), bid,
-                          static_cast<unsigned long long>(bid_sz), ask, static_cast<unsigned long long>(ask_sz));
+            std::snprintf(buf, sizeof buf,
+                          "%s\"%.*s\": {\"bid\": %u, \"bid_size\": %llu, \"ask\": %u, \"ask_size\": %llu}",
+                          i ? ", " : "", static_cast<int>(kSymbolNames[i].size()), kSymbolNames[i].data(),
+                          bid * kTickSize, static_cast<unsigned long long>(bid_sz),
+                          ask != OrderBook::kNoAsk ? ask * kTickSize : 0, static_cast<unsigned long long>(ask_sz));
             s += buf;
         }
         return s + "}";
     }
 
-    std::size_t size() const { return orders_.size(); }
+    std::size_t size() const { return refs_.size(); }
 
 private:
-    using Queue = std::list<std::uint64_t>;
-    struct Order {
-        std::uint8_t loc;
-        char side;
-        std::uint32_t tick;
-        std::uint32_t shares;
-        Queue::iterator it;
-    };
-
-    Queue& level(std::uint8_t loc, char side, std::uint32_t tick) {
-        return side == 'B' ? bids_[loc - 1][tick] : asks_[loc - 1][tick];
-    }
-
-    void erase(std::unordered_map<std::uint64_t, Order>::iterator it) {
-        const Order& o = it->second;
-        auto& side = o.side == 'B' ? bids_[o.loc - 1] : asks_[o.loc - 1];
-        auto lvl = side.find(o.tick);
-        lvl->second.erase(o.it);
-        if (lvl->second.empty()) side.erase(lvl);
-        orders_.erase(it);
-    }
-
-    std::uint64_t mix(std::uint64_t h, std::uint64_t ref) const {
-        const Order& o = orders_.at(ref);
-        return checksum_order(h, o.loc, o.side, o.tick, o.shares, ref);
-    }
-
-    std::map<std::uint32_t, Queue> bids_[kNumSymbols];
-    std::map<std::uint32_t, Queue> asks_[kNumSymbols];
-    std::unordered_map<std::uint64_t, Order> orders_;
+    std::unique_ptr<OrderBook[]> books_;
+    std::unique_ptr<Order[]> pool_;
+    std::unique_ptr<std::uint32_t[]> free_;
+    std::uint32_t free_top_;
+    FlatMap<std::uint64_t, std::uint32_t> refs_;
 };
 
 int open_socket(const Options& o) {
@@ -178,7 +168,8 @@ Options parse_args(int argc, char** argv) {
 int main(int argc, char** argv) try {
     Options opt = parse_args(argc, argv);
     int fd = open_socket(opt);
-    Books books;
+    auto books_ptr = std::make_unique<Books>();
+    Books& books = *books_ptr;
     std::uint64_t expected = 1, gaps = 0, messages = 0, packets = 0, heartbeats = 0;
     std::uint64_t by_type[128] = {};
     bool ended = false, timed_out = false;
