@@ -92,6 +92,18 @@ private:
     std::uint64_t itch_out_ = 0;
 };
 
+// One engine-thread step: process the oldest inbound command, prefetching for a later one.
+template <class E>
+inline bool step_engine(E& engine, RingSink& sink, InboundRing& in) noexcept {
+    Command* c = in.peek();
+    if (c == nullptr) return false;
+    if (const Command* ahead = in.peek_at(kPrefetchAhead)) engine.prefetch(*ahead);
+    sink.begin(*c);
+    engine.on_command(*c);
+    in.release();
+    return true;
+}
+
 struct GatewayStats {
     std::uint64_t sessions_accepted = 0;
     std::uint64_t commands = 0;

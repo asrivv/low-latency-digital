@@ -40,16 +40,8 @@ public:
             gateway_->finish();
         });
         eng_ = std::thread([this] {
-            while (!stop_.load()) {
-                Command* c = in_->peek();
-                if (c == nullptr) {
-                    cpu_relax();
-                    continue;
-                }
-                sink_.begin(*c);
-                engine_->on_command(*c);
-                in_->release();
-            }
+            while (!stop_.load())
+                if (!step_engine(*engine_, sink_, *in_)) cpu_relax();
         });
     }
     ~LoopbackExchange() {

@@ -40,6 +40,17 @@ struct Cmd {
     };
 };
 
+constexpr std::size_t kAhead = kPrefetchAhead;
+
+template <class E>
+inline void prefetch(E& e, const Cmd& c) {
+    switch (c.kind) {
+        case Command::Kind::Enter: e.prefetch(c.enter.session, c.enter.msg.token); break;
+        case Command::Kind::Cancel: e.prefetch(c.cancel.session, c.cancel.msg.token); break;
+        case Command::Kind::Replace: e.prefetch(c.replace.session, c.replace.msg.existing); break;
+    }
+}
+
 template <class E>
 inline void apply(E& e, const Cmd& c) {
     switch (c.kind) {
@@ -113,7 +124,10 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < args.warmup; ++i) apply(*eng, cmds[i]);
     std::uint64_t allocs0 = bench::allocations();
     std::int64_t t0 = now_ns();
-    for (std::size_t i = args.warmup; i < total; ++i) apply(*eng, cmds[i]);
+    for (std::size_t i = args.warmup; i < total; ++i) {
+        if (i + kAhead < total) prefetch(*eng, cmds[i + kAhead]);
+        apply(*eng, cmds[i]);
+    }
     std::int64_t t1 = now_ns();
     std::uint64_t allocs_throughput = bench::allocations() - allocs0;
     std::uint64_t checksum = eng->book_checksum();
@@ -129,6 +143,7 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < args.warmup; ++i) apply(*eng2, cmds[i]);
     allocs0 = bench::allocations();
     for (std::size_t i = args.warmup; i < total; ++i) {
+        if (i + kAhead < total) prefetch(*eng2, cmds[i + kAhead]);
         std::int64_t a = now_ns();
         apply(*eng2, cmds[i]);
         std::int64_t b = now_ns();

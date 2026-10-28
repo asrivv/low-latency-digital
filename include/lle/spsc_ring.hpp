@@ -55,6 +55,16 @@ public:
         return &slots_[h & kMask];
     }
 
+    // Consumer: the slot k positions after the oldest, or nullptr if it is not published yet.
+    T* peek_at(std::size_t k) noexcept {
+        std::uint64_t i = head_.load(std::memory_order_relaxed) + k;
+        if (i >= tail_cache_) {
+            tail_cache_ = tail_.load(std::memory_order_acquire);
+            if (i >= tail_cache_) return nullptr;
+        }
+        return &slots_[i & kMask];
+    }
+
     // Release: the producer must not overwrite the slot until our reads of it are done.
     void release() noexcept { head_.store(head_.load(std::memory_order_relaxed) + 1, std::memory_order_release); }
 

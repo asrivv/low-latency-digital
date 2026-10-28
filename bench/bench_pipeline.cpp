@@ -84,15 +84,9 @@ void run_one(const Run& run, Result& res) {
         make_thread_hot(-1);
         ready.fetch_add(1);
         for (;;) {
-            Command* c = in->peek();
-            if (c == nullptr) {
-                if (producer_done.load(std::memory_order_acquire) && in->peek() == nullptr) break;
-                cpu_relax();
-                continue;
-            }
-            sink.begin(*c);
-            engine->on_command(*c);
-            in->release();
+            if (step_engine(*engine, sink, *in)) continue;
+            if (producer_done.load(std::memory_order_acquire) && in->peek() == nullptr) break;
+            cpu_relax();
         }
         engine_done.store(true, std::memory_order_release);
     });

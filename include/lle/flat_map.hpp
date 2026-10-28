@@ -62,6 +62,8 @@ public:
         }
     }
 
+    void prefetch(K key) const noexcept { __builtin_prefetch(&slots_[home(key)]); }
+
     bool erase(K key) noexcept {
         std::size_t i = home(key);
         for (;; i = (i + 1) & mask_) {

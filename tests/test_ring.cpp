@@ -42,6 +42,19 @@ TEST(SpscRing, ClaimCommitPeekRelease) {
     }
 }
 
+TEST(SpscRing, PeekAt) {
+    SpscRing<int, 8> r;
+    EXPECT_EQ(r.peek_at(0), nullptr);
+    for (int i = 0; i < 5; ++i) r.try_push(i);
+    ASSERT_NE(r.peek_at(4), nullptr);
+    EXPECT_EQ(*r.peek_at(4), 4);
+    EXPECT_EQ(r.peek_at(5), nullptr);
+    int v;
+    r.try_pop(v);
+    EXPECT_EQ(*r.peek_at(3), 4);
+    EXPECT_EQ(r.peek_at(4), nullptr);
+}
+
 TEST(SpscRing, TwoThreadStress) {
     constexpr std::uint64_t kCount = 100'000'000;
     auto ring = std::make_unique<SpscRing<std::uint64_t, 1 << 16>>();

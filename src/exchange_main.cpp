@@ -128,15 +128,9 @@ int main(int argc, char** argv) {
     std::thread engine_thread([&] {
         make_thread_hot(opt.pin_engine);
         for (;;) {
-            Command* c = in->peek();
-            if (c == nullptr) {
-                if (stop_engine.load(std::memory_order_acquire) && in->peek() == nullptr) break;
-                cpu_relax();
-                continue;
-            }
-            sink.begin(*c);
-            engine->on_command(*c);
-            in->release();
+            if (step_engine(*engine, sink, *in)) continue;
+            if (stop_engine.load(std::memory_order_acquire) && in->peek() == nullptr) break;
+            cpu_relax();
         }
     });
 

@@ -57,6 +57,10 @@ inline std::uint64_t token_key(SessionId session, const Token& t) noexcept {
     return h != 0 ? h : 1;
 }
 
+// How far ahead of the current command the engine loop prefetches; enough to cover a DRAM miss
+// at the engine's per-command cost.
+inline constexpr std::size_t kPrefetchAhead = 4;
+
 struct EngineStats {
     std::uint64_t enters = 0;
     std::uint64_t cancels = 0;
@@ -91,6 +95,18 @@ public:
             case Command::Kind::Enter: on_enter(c.enter); break;
             case Command::Kind::Cancel: on_cancel(c.cancel); break;
             case Command::Kind::Replace: on_replace(c.replace); break;
+        }
+    }
+
+    // Starts loading the token-index slot a later command will probe. That probe is the one
+    // access per command that is almost always a cache miss.
+    void prefetch(SessionId session, const Token& t) const noexcept { tokens_.prefetch(token_key(session, t)); }
+
+    void prefetch(const Command& c) const noexcept {
+        switch (c.kind) {
+            case Command::Kind::Enter: prefetch(c.enter.session, c.enter.msg.token); break;
+            case Command::Kind::Cancel: prefetch(c.cancel.session, c.cancel.msg.token); break;
+            case Command::Kind::Replace: prefetch(c.replace.session, c.replace.msg.existing); break;
         }
     }
 
