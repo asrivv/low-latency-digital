@@ -30,6 +30,15 @@ target_link_libraries(lle INTERFACE Threads::Threads)
 set(LLE_WARNINGS -Wall -Wextra)
 set(LLE_HOT_FLAGS -fno-exceptions -fno-rtti)
 
+add_library(lle_exchange STATIC src/gateway.cpp src/md_publisher.cpp)
+target_include_directories(lle_exchange PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(lle_exchange PUBLIC lle)
+target_compile_options(lle_exchange PRIVATE ${LLE_WARNINGS} ${LLE_HOT_FLAGS})
+
+add_executable(exchange src/exchange_main.cpp)
+target_link_libraries(exchange PRIVATE lle_exchange)
+target_compile_options(exchange PRIVATE ${LLE_WARNINGS} ${LLE_HOT_FLAGS})
+
 add_subdirectory(tools)
 
 include(CTest)
@@ -57,6 +66,8 @@ if(BUILD_TESTING)
   lle_test(test_book)
   lle_test(test_engine)
   lle_test(test_differential)
+  lle_test(test_gateway)
+  target_link_libraries(test_gateway PRIVATE lle_exchange)
 endif()
 
 function(lle_bench name)

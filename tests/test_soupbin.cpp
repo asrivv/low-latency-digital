@@ -111,6 +111,10 @@ TEST(SoupBin, StopsWhenCallbackReturnsFalse) {
         return false;
     });
     EXPECT_EQ(calls, 1);
+    EXPECT_EQ(r.consumed, 0u);
+    calls = 0;
+    r = soupbin::parse(buf, n, [&](char, const std::byte*, std::size_t) { return ++calls < 2; });
+    EXPECT_EQ(calls, 2);
     EXPECT_EQ(r.consumed, 3u);
 }
 

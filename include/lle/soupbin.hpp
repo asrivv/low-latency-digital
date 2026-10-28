@@ -90,8 +90,8 @@ struct ParseResult {
     bool error;
 };
 
-// Calls on_frame(type, payload, payload_len) for each complete frame and stops early if it
-// returns false. Leaves a trailing partial frame unconsumed. A zero length (no type byte)
+// Calls on_frame(type, payload, payload_len) for each complete frame. Returning false stops
+// before that frame, leaving it unconsumed, as is a trailing partial frame. A zero length (no type byte)
 // or a frame longer than max_payload is a protocol error.
 template <class F>
 inline ParseResult parse(const std::byte* data, std::size_t len, F&& on_frame,
@@ -101,9 +101,8 @@ inline ParseResult parse(const std::byte* data, std::size_t len, F&& on_frame,
         std::size_t flen = load_be16(data + pos);
         if (flen == 0 || flen - 1 > max_payload) return {pos, true};
         if (len - pos < 2 + flen) break;
-        bool more = on_frame(load_char(data + pos + 2), data + pos + kHeaderSize, flen - 1);
+        if (!on_frame(load_char(data + pos + 2), data + pos + kHeaderSize, flen - 1)) break;
         pos += 2 + flen;
-        if (!more) break;
     }
     return {pos, false};
 }
