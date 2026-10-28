@@ -130,7 +130,7 @@ inline constexpr std::uint32_t kMaxShares = 1'000'000;
 inline constexpr std::size_t kTokenLen = 14;
 
 struct Token {
-    std::array<char, kTokenLen> b{};
+    std::array<char, kTokenLen> b;
 
     friend bool operator==(const Token&, const Token&) = default;
 
