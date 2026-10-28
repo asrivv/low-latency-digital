@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -8,6 +9,7 @@
 #include <string>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <thread>
 #include <unistd.h>
 
 #include "lle/common.hpp"
@@ -15,6 +17,7 @@
 #include "lle/itch.hpp"
 #include "lle/moldudp64.hpp"
 #include "lle/order_book.hpp"
+#include "lle/spsc_ring.hpp"
 
 using namespace lle;
 
@@ -119,6 +122,12 @@ private:
     FlatMap<std::uint64_t, std::uint32_t> refs_;
 };
 
+struct Packet {
+    std::uint32_t len;
+    std::byte data[2048];
+};
+using PacketRing = SpscRing<Packet, 1 << 14>;
+
 int open_socket(const Options& o) {
     int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) throw std::runtime_error("socket");
@@ -172,26 +181,44 @@ int main(int argc, char** argv) try {
     Books& books = *books_ptr;
     std::uint64_t expected = 1, gaps = 0, messages = 0, packets = 0, heartbeats = 0;
     std::uint64_t by_type[128] = {};
-    bool ended = false, timed_out = false;
-    std::int64_t last_packet = now_ns();
-    alignas(8) std::byte buf[65536];
+    bool ended = false;
 
-    while (!ended) {
-        ssize_t n = ::recv(fd, buf, sizeof buf, 0);
-        if (n < 0) {
-            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
-                throw std::runtime_error(std::string("recv: ") + std::strerror(errno));
-            if (static_cast<double>(now_ns() - last_packet) * 1e-9 >= opt.timeout) {
-                timed_out = true;
-                break;
+    // The receive thread only drains the socket into a ring; book building happens here. At
+    // full exchange throughput one thread doing both falls behind and the kernel drops packets.
+    auto ring = std::make_unique<PacketRing>();
+    std::atomic<bool> receiver_done{false}, timed_out{false}, stop{false};
+    std::thread receiver([&] {
+        make_thread_hot(-1);
+        std::int64_t last_packet = now_ns();
+        while (!stop.load(std::memory_order_relaxed)) {
+            Packet* p;
+            while ((p = ring->claim()) == nullptr) cpu_relax();
+            ssize_t n = ::recv(fd, p->data, sizeof p->data, 0);
+            if (n < 0) {
+                if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) break;
+                if (static_cast<double>(now_ns() - last_packet) * 1e-9 >= opt.timeout) {
+                    timed_out = true;
+                    break;
+                }
+                continue;
             }
+            last_packet = now_ns();
+            p->len = static_cast<std::uint32_t>(n);
+            ring->commit();
+        }
+        receiver_done.store(true, std::memory_order_release);
+    });
+
+    for (;;) {
+        Packet* p = ring->peek();
+        if (p == nullptr) {
+            if (receiver_done.load(std::memory_order_acquire) && ring->peek() == nullptr) break;
+            cpu_relax();
             continue;
         }
-        last_packet = now_ns();
         ++packets;
         mold::PacketHeader h;
-        bool ok = mold::parse(buf, static_cast<std::size_t>(n), h, [&](std::uint64_t seq, const std::byte* m,
-                                                                      std::size_t len) {
+        bool ok = mold::parse(p->data, p->len, h, [&](std::uint64_t seq, const std::byte* m, std::size_t len) {
             if (seq < expected || len == 0) return;
             char type = static_cast<char>(m[0]);
             if (len != itch::message_size(type)) return;
@@ -222,25 +249,30 @@ int main(int argc, char** argv) try {
                 default: break;
             }
         });
+        ring->release();
         if (!ok) continue;
         if (h.sequence > expected) gaps += h.sequence - expected;
         if (h.count == mold::kEndOfSession) {
             ended = true;
-        } else if (h.count == 0) {
+            break;
+        }
+        if (h.count == 0) {
             ++heartbeats;
             if (h.sequence > expected) expected = h.sequence;
         } else if (h.sequence + h.count > expected) {
             expected = h.sequence + h.count;
         }
     }
+    stop = true;
+    receiver.join();
     ::close(fd);
 
     char head[512];
     std::snprintf(head, sizeof head,
-                  "{\"messages\": %llu, \"packets\": %llu, \"heartbeats\": %llu, \"gaps\": %llu, "
+                  "{\"port\": %u, \"messages\": %llu, \"packets\": %llu, \"heartbeats\": %llu, \"gaps\": %llu, "
                   "\"end_of_session\": %s, \"by_type\": {\"S\": %llu, \"R\": %llu, \"A\": %llu, \"E\": %llu, "
                   "\"X\": %llu, \"D\": %llu, \"U\": %llu}, \"resting_orders\": %zu, \"book_checksum\": \"%016llx\", ",
-                  static_cast<unsigned long long>(messages), static_cast<unsigned long long>(packets),
+                  opt.port, static_cast<unsigned long long>(messages), static_cast<unsigned long long>(packets),
                   static_cast<unsigned long long>(heartbeats), static_cast<unsigned long long>(gaps),
                   ended ? "true" : "false", static_cast<unsigned long long>(by_type[static_cast<unsigned char>('S')]),
                   static_cast<unsigned long long>(by_type[static_cast<unsigned char>('R')]), static_cast<unsigned long long>(by_type[static_cast<unsigned char>('A')]),
@@ -256,7 +288,7 @@ int main(int argc, char** argv) try {
         std::fprintf(f, "%s\n", line.c_str());
         std::fclose(f);
     }
-    return timed_out ? 1 : 0;
+    return timed_out.load() ? 1 : 0;
 } catch (const std::exception& e) {
     std::fprintf(stderr, "itch_listener: %s\n", e.what());
     return 1;
