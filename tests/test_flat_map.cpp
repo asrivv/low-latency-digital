@@ -10,10 +10,6 @@ using namespace lle;
 
 namespace {
 
-struct IdentityHash {
-    static std::size_t slot(std::uint64_t key, unsigned) noexcept { return static_cast<std::size_t>(key); }
-};
-
 template <class Map>
 void differential(Map& map, std::uint64_t key_range, std::uint64_t seed, int ops) {
     std::unordered_map<std::uint64_t, std::uint32_t> ref;

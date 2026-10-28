@@ -283,7 +283,7 @@ private:
     std::unique_ptr<Order[]> pool_;
     std::unique_ptr<std::uint32_t[]> free_;
     std::uint32_t free_top_;
-    FlatMap<std::uint64_t, std::uint32_t> refs_;
+    FlatMap<std::uint64_t, std::uint32_t, IdentityHash> refs_;
     FlatMap<std::uint64_t, std::uint32_t> tokens_;
     std::uint64_t next_ref_ = 1;
     std::uint64_t next_match_ = 1;

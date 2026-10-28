@@ -14,6 +14,13 @@ struct FibonacciHash {
     }
 };
 
+// For keys that are a dense increasing counter: consecutive keys land in consecutive slots, so
+// inserts and erases walk memory sequentially instead of touching a random line each time.
+// Two live keys collide only if they differ by a multiple of the capacity.
+struct IdentityHash {
+    static std::size_t slot(std::uint64_t key, unsigned) noexcept { return static_cast<std::size_t>(key); }
+};
+
 // Open addressing, linear probing, fixed power-of-two capacity, backward-shift deletion so
 // there are no tombstones. Key 0 marks an empty slot and cannot be stored.
 template <class K, class V, class Hash = FibonacciHash>
