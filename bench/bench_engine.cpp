@@ -51,8 +51,9 @@ inline void apply(E& e, const Cmd& c) {
 
 double clock_overhead_ns() {
     constexpr int kN = 10'000'000;
-    std::int64_t t0 = now_ns(), x = 0;
-    for (int i = 0; i < kN; ++i) x += now_ns();
+    std::int64_t t0 = now_ns();
+    std::uint64_t x = 0;
+    for (int i = 0; i < kN; ++i) x ^= static_cast<std::uint64_t>(now_ns());
     std::int64_t t1 = now_ns();
     if (x == 42) std::puts("");
     return static_cast<double>(t1 - t0) / kN;
