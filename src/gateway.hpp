@@ -39,6 +39,8 @@ using MdRing = SpscRing<MdMsg, kRingSlots>;
 bool decode_command(const std::byte* p, std::size_t n, SessionId session, std::uint64_t ts, Command& out) noexcept;
 
 // Engine sink that encodes into the outbound and market data rings, spinning while full.
+// Events are written as they occur but published once per command by end(), so the
+// consumers see one tail update per ring per command instead of one per event.
 class RingSink {
 public:
     RingSink(OutboundRing& out, MdRing& md) noexcept : out_(out), md_(md) {}
@@ -61,11 +63,17 @@ public:
 
     template <class M>
     void put_itch(const M& m) noexcept {
-        MdMsg* slot;
-        while ((slot = md_.claim()) == nullptr) cpu_relax();
+        MdMsg* slot = md_.claim(md_pending_);
+        if (slot == nullptr) slot = claim_after_publish(md_);
         slot->len = static_cast<std::uint8_t>(itch::encode(m, slot->data));
-        md_.commit();
+        ++md_pending_;
         ++itch_out_;
+    }
+
+    void end() noexcept {
+        if (out_pending_ != 0) out_.commit(out_pending_);
+        if (md_pending_ != 0) md_.commit(md_pending_);
+        out_pending_ = md_pending_ = 0;
     }
 
     std::uint64_t ouch_out() const noexcept { return ouch_out_; }
@@ -74,20 +82,31 @@ public:
 private:
     template <class M>
     void put_ouch(SessionId s, const M& m) noexcept {
-        OutMsg* slot;
-        while ((slot = out_.claim()) == nullptr) cpu_relax();
+        OutMsg* slot = out_.claim(out_pending_);
+        if (slot == nullptr) slot = claim_after_publish(out_);
         slot->t_origin = t_origin_;
         slot->cmd_seq = seq_;
         slot->session = s;
         slot->len = static_cast<std::uint8_t>(ouch::encode(m, slot->data));
-        out_.commit();
+        ++out_pending_;
         ++ouch_out_;
+    }
+
+    // A full ring with unpublished slots would never drain; publish them before waiting.
+    template <class Ring>
+    auto claim_after_publish(Ring& ring) noexcept -> decltype(ring.claim()) {
+        end();
+        decltype(ring.claim()) slot;
+        while ((slot = ring.claim()) == nullptr) cpu_relax();
+        return slot;
     }
 
     OutboundRing& out_;
     MdRing& md_;
     std::int64_t t_origin_ = 0;
     std::uint64_t seq_ = 0;
+    std::size_t out_pending_ = 0;
+    std::size_t md_pending_ = 0;
     std::uint64_t ouch_out_ = 0;
     std::uint64_t itch_out_ = 0;
 };
@@ -100,6 +119,7 @@ inline bool step_engine(E& engine, RingSink& sink, InboundRing& in) noexcept {
     if (const Command* ahead = in.peek_at(kPrefetchAhead)) engine.prefetch(*ahead);
     sink.begin(*c);
     engine.on_command(*c);
+    sink.end();
     in.release();
     return true;
 }

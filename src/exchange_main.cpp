@@ -60,6 +60,7 @@ Options parse(int argc, char** argv) {
 
 void system_event(RingSink& sink, std::int64_t offset, char code) {
     sink.put_itch(itch::SystemEvent{since_midnight(now_ns(), offset), code});
+    sink.end();
 }
 
 }  // namespace
@@ -107,6 +108,7 @@ int main(int argc, char** argv) {
         d.timestamp = since_midnight(now_ns(), offset);
         d.stock = key_of_locate(loc);
         sink.put_itch(d);
+        sink.end();
     }
     system_event(sink, offset, 'Q');
 

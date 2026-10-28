@@ -24,18 +24,21 @@ public:
 
     static constexpr std::size_t capacity() noexcept { return Capacity; }
 
-    // Producer: slot to fill in place, or nullptr when full. Publish with commit().
-    T* claim() noexcept {
-        std::uint64_t t = tail_.load(std::memory_order_relaxed);
-        if (t - head_cache_ == Capacity) {
+    // Producer: the slot `ahead` places past the next unpublished one, to fill in place, or
+    // nullptr when the ring has no room for it. Publish filled slots with commit(n).
+    T* claim(std::size_t ahead = 0) noexcept {
+        std::uint64_t t = tail_.load(std::memory_order_relaxed) + ahead;
+        if (t - head_cache_ >= Capacity) {
             head_cache_ = head_.load(std::memory_order_acquire);
-            if (t - head_cache_ == Capacity) return nullptr;
+            if (t - head_cache_ >= Capacity) return nullptr;
         }
         return &slots_[t & kMask];
     }
 
-    // Release: the slot contents written after claim() become visible before the new tail.
-    void commit() noexcept { tail_.store(tail_.load(std::memory_order_relaxed) + 1, std::memory_order_release); }
+    // Release: slot contents written after claim() become visible before the new tail.
+    void commit(std::size_t n = 1) noexcept {
+        tail_.store(tail_.load(std::memory_order_relaxed) + n, std::memory_order_release);
+    }
 
     bool try_push(const T& v) noexcept {
         T* s = claim();
