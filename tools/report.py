@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Renders bench/results/*.json into the README results block.
+"""Renders bench/results/*.json into the generated blocks of README.md.
 
-Every number in the block is copied verbatim from the JSON text, and the script refuses to
-write a block containing a number that does not appear in some results file.
+Every number in a block is copied verbatim from the JSON text. Afterwards every number in the
+whole README is checked against the results files, and the script fails if one is missing.
 """
 
 import json
@@ -13,7 +13,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "bench" / "results"
 README = ROOT / "README.md"
-BEGIN, END = "<!-- results -->", "<!-- /results -->"
 PCTS = ["p50_ns", "p90_ns", "p99_ns", "p99_9_ns", "p99_99_ns", "max_ns"]
 E2E = ["100k", "500k", "1m", "max"]
 
@@ -78,25 +77,55 @@ def render():
     return "\n".join(out)
 
 
-def check(block):
+def render_correctness():
+    diff = load("differential.json")
+    listener = load("itch_listener.json")
+    out = []
+    if diff:
+        out.append(
+            f"- Differential test: {num(diff['seeds'])} seeds of {num(diff['messages_per_seed'])} flow messages "
+            f"from {num(diff['clients'])} clients, a small fraction mutated into rejects, duplicate tokens, partial "
+            "cancels and IOC replaces, go through both the engine and `tests/reference_engine.hpp` (std::map "
+            "levels, std::list FIFOs). Every event must match byte for byte, and the final book checksums must "
+            f"agree; {num(diff['events_compared'])} events were compared, {num(diff['mismatches'])} mismatches."
+        )
+    if listener:
+        out.append(
+            f"- Market data: `itch_listener` rebuilt the books from {num(listener['messages'])} ITCH messages with "
+            f"{num(listener['gaps'])} sequence gaps across the whole loopback run and computed the same FNV-1a "
+            "checksum the exchange prints at shutdown. `run_all.sh` fails if they differ while gaps is 0."
+        )
+    return "\n".join(out)
+
+
+def numbers(text):
+    text = re.sub(r"`[0-9a-f]{16}`", "", text)
+    text = re.sub(r"p99\.99|p99\.9|p99|p90|p50", "", text)
+    return re.findall(r"(?<![A-Za-z_])\d+(?:\.\d+)?", text)
+
+
+def check(text):
     corpus = "\n".join(p.read_text() for p in sorted(RESULTS.glob("*.json")))
-    text = re.sub(r"`[^`]*`", "", block)
-    text = text.replace("p99.99", "").replace("p99.9", "").replace("p99", "").replace("p90", "").replace("p50", "")
-    missing = [n for n in re.findall(r"\d+(?:\.\d+)?", text) if n not in corpus]
+    missing = sorted({n for n in numbers(text) if n not in corpus}, key=float)
     if missing:
-        sys.exit(f"numbers not found in bench/results: {sorted(set(missing))}")
+        sys.exit(f"README numbers not found in bench/results: {missing}")
+
+
+def splice(readme, name, block):
+    begin, end = f"<!-- {name} -->", f"<!-- /{name} -->"
+    if begin not in readme or end not in readme:
+        sys.exit(f"README.md has no {begin} ... {end} block")
+    head, rest = readme.split(begin, 1)
+    _, tail = rest.split(end, 1)
+    return f"{head}{begin}\n{block}\n{end}{tail}"
 
 
 def main():
+    readme = README.read_text()
     block = render()
-    check(block)
-    readme = README.read_text() if README.exists() else ""
-    if BEGIN in readme and END in readme:
-        head, rest = readme.split(BEGIN, 1)
-        _, tail = rest.split(END, 1)
-        readme = f"{head}{BEGIN}\n{block}\n{END}{tail}"
-    else:
-        readme = readme.rstrip("\n") + f"\n\n## Results\n\n{BEGIN}\n{block}\n{END}\n"
+    readme = splice(readme, "results", block)
+    readme = splice(readme, "correctness", render_correctness())
+    check(readme)
     README.write_text(readme)
     print(block)
 

@@ -302,11 +302,13 @@ int main(int argc, char** argv) try {
     }
     char buf[2048];
     std::snprintf(buf, sizeof buf,
-                  "{\"bench\": \"e2e\", \"host\": \"%s\", \"timer_tick_ns\": %.2f, \"sessions\": %u, "
+                  "{\"bench\": \"e2e\", \"host\": \"%s\", \"timer_tick_ns\": %.2f, \"port\": %u, \"sessions\": %u, "
+                  "\"pace_ns\": %lld, "
                   "\"target_rate\": %llu, \"warmup_s\": %.1f, \"duration_s\": %.1f, "
                   "\"achieved_send_rate\": %.0f, \"achieved_response_rate\": %.0f, \"ouch_received_rate\": %.0f, "
                   "\"messages_sent\": %llu, \"messages_received\": %llu, \"unanswered\": %llu, \"latency\": {%s}}",
-                  host_description().c_str(), timer_tick_ns(), opt.sessions,
+                  host_description().c_str(), timer_tick_ns(), opt.port, opt.sessions,
+                  static_cast<long long>(opt.pace_ns),
                   static_cast<unsigned long long>(opt.rate), opt.warmup, opt.duration,
                   static_cast<double>(total.sent_in_window) / opt.duration,
                   static_cast<double>(total.answered_in_window) / opt.duration,

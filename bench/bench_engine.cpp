@@ -173,7 +173,8 @@ int main(int argc, char** argv) {
     }
     std::fprintf(f,
                  "{\n  \"bench\": \"engine\",\n  \"host\": \"%s\",\n  \"timer_tick_ns\": %.2f,\n"
-                 "  \"clock_read_ns\": %.1f,\n  \"seed\": %llu,\n  \"clients\": %u,\n"
+                 "  \"clock_read_ns\": %.1f,\n  \"cache_line\": %zu,\n  \"symbols\": %zu,\n  \"pool_capacity\": %u,\n"
+                 "  \"order_record_bytes\": %zu,\n  \"prefetch_ahead\": %zu,\n  \"seed\": %llu,\n  \"clients\": %u,\n"
                  "  \"warmup_messages\": %zu,\n  \"measured_messages\": %zu,\n"
                  "  \"throughput_msgs_per_s\": %llu,\n  \"mean_ns_per_msg\": %.1f,\n"
                  "  \"latency\": {%s},\n  \"allocations_during_measurement\": %llu,\n"
@@ -181,7 +182,8 @@ int main(int argc, char** argv) {
                  "\"rejected\": %llu, \"itch_add\": %llu, \"itch_executed\": %llu, \"itch_cancel\": %llu, "
                  "\"itch_delete\": %llu, \"itch_replace\": %llu},\n"
                  "  \"matches\": %llu,\n  \"live_orders_end\": %zu,\n  \"book_checksum\": \"%016llx\"\n}\n",
-                 host.c_str(), tick, overhead, static_cast<unsigned long long>(args.seed), args.clients, args.warmup,
+                 host.c_str(), tick, overhead, kCacheLine, kNumSymbols, Engine<CountingSink>::kDefaultPool,
+                 sizeof(Order), kPrefetchAhead, static_cast<unsigned long long>(args.seed), args.clients, args.warmup,
                  args.messages, static_cast<unsigned long long>(throughput), mean_ns, hist->json_fields().c_str(),
                  static_cast<unsigned long long>(allocs_throughput + allocs_latency),
                  static_cast<unsigned long long>(counts.accepted), static_cast<unsigned long long>(counts.executed),

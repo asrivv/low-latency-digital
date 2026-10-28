@@ -164,11 +164,14 @@ int main(int argc, char** argv) {
     const EngineStats& es = engine->stats();
     const GatewayStats& gs = gateway->stats();
     const MdStats& ms = publisher->stats();
-    std::printf("{\"book_checksum\": \"%016llx\", \"commands\": %llu, \"enters\": %llu, \"cancels\": %llu, "
+    std::printf("{\"order_entry\": \"OUCH 4.2 over SoupBinTCP 3.0\", \"market_data\": \"ITCH 5.0 over MoldUDP64\", "
+                "\"port\": %u, \"md_addr\": \"%s\", \"md_port\": %u, \"gateway_pace_ns\": %lld, \"md_pace_ns\": %lld, "
+                "\"book_checksum\": \"%016llx\", \"commands\": %llu, \"enters\": %llu, \"cancels\": %llu, "
                 "\"replaces\": %llu, \"rejects\": %llu, \"ignored\": %llu, \"matches\": %llu, \"live_orders\": %zu, "
                 "\"ouch_out\": %llu, \"itch_out\": %llu, \"md_messages\": %llu, \"md_packets\": %llu, "
                 "\"md_send_retries\": %llu, \"sessions\": %llu, \"frames_out\": %llu, \"dropped_out\": %llu}\n",
-                static_cast<unsigned long long>(engine->book_checksum()),
+                gateway->port(), opt.md_addr, opt.md_port, static_cast<long long>(opt.gw_pace_ns),
+                static_cast<long long>(opt.md_pace_ns), static_cast<unsigned long long>(engine->book_checksum()),
                 static_cast<unsigned long long>(gs.commands), static_cast<unsigned long long>(es.enters),
                 static_cast<unsigned long long>(es.cancels), static_cast<unsigned long long>(es.replaces),
                 static_cast<unsigned long long>(es.rejects), static_cast<unsigned long long>(es.ignored),

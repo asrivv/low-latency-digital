@@ -17,6 +17,7 @@ cmake --build "$DBG"
 ctest --test-dir "$DBG" --output-on-failure
 
 mkdir -p "$RESULTS"
+LLE_RESULTS_DIR="$RESULTS" "$REL/test_differential" >/dev/null
 "$REL/bench_engine" --out "$RESULTS/engine.json"
 "$REL/bench_pipeline" --out "$RESULTS/pipeline.json"
 

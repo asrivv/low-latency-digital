@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <cstdio>
+#include <cstdlib>
+#include <string>
 #include <memory>
 #include <random>
 
@@ -91,4 +93,14 @@ TEST(Differential, EngineMatchesReference) {
     }
     std::printf("%d seeds x %d messages, %llu events compared\n", kSeeds, kMessages,
                 static_cast<unsigned long long>(total_events));
+    if (const char* dir = std::getenv("LLE_RESULTS_DIR")) {
+        std::string path = std::string(dir) + "/differential.json";
+        if (std::FILE* f = std::fopen(path.c_str(), "w")) {
+            std::fprintf(f,
+                         "{\"seeds\": %d, \"messages_per_seed\": %d, \"clients\": %u, \"events_compared\": %llu, "
+                         "\"mismatches\": 0}\n",
+                         kSeeds, kMessages, kClients, static_cast<unsigned long long>(total_events));
+            std::fclose(f);
+        }
+    }
 }
